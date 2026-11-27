@@ -376,11 +376,40 @@ func TestCompleteIsIdempotent(t *testing.T) {
 	// Also across a restart, from the tombstone.
 	m2 := NewManager(m.root, Limits{ChunkSize: testChunk})
 	t.Cleanup(m2.Close)
-	s2, _, err := m2.CreateOrResume(fs, params(sessionID(7), int64(len(data))))
+	// "complete" is addressed to an existing session (the HTTP layer uses Get), not to a new upload.
+	s2, err := m2.Get(fs, testServer, testUser, sessionID(7))
 	require.NoError(t, err)
 	third, err := s2.Complete("")
 	require.NoError(t, err)
 	require.Equal(t, first.SHA256, third.SHA256)
+}
+
+func TestUploadingTheSameFileAgainAfterCompletionStartsAFreshUpload(t *testing.T) {
+	m, _ := newManager(t)
+	fs := newFakeFS(t)
+	data := randomBytes(t, testChunk+5)
+	id := sessionID(95)
+
+	first, _, err := m.CreateOrResume(fs, params(id, int64(len(data))))
+	require.NoError(t, err)
+	require.NoError(t, putChunk(t, first, data, 0))
+	require.NoError(t, putChunk(t, first, data, 1))
+	_, err = first.Complete("")
+	require.NoError(t, err)
+
+	// The very same file is picked again within the tombstone's lifetime (same id): that is a NEW upload.
+	second, created, err := m.CreateOrResume(fs, params(id, int64(len(data))))
+	require.NoError(t, err)
+	require.True(t, created, "a completed session must not be resumed")
+	require.Empty(t, second.Info().Received)
+	require.Nil(t, second.Info().Completed)
+
+	require.NoError(t, putChunk(t, second, data, 0))
+	require.NoError(t, putChunk(t, second, data, 1))
+	res, err := second.Complete("")
+	require.NoError(t, err)
+	require.Equal(t, sum(data), res.SHA256)
+	require.Equal(t, data, fs.read(t, "/mods/backups/backup.rar"))
 }
 
 func TestReplacementRules(t *testing.T) {

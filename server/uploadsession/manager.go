@@ -56,6 +56,15 @@ func (m *Manager) CreateOrResume(fs FS, p Params) (*Session, bool, error) {
 	}
 
 	s, err := m.load(fs, p.ServerUUID, p.SessionID)
+	if err == nil && s.Info().Completed != nil {
+		// A finished session only lives on as a tombstone so a repeated "complete" can be answered. Asking to
+		// create the same upload again (same file picked once more) means a NEW upload that replaces the result.
+		if merr := matches(s, p); merr != nil {
+			return nil, false, merr
+		}
+		_ = s.Abort()
+		err = ErrNotFound
+	}
 	switch {
 	case err == nil:
 		if err := matches(s, p); err != nil {
