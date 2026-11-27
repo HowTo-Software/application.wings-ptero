@@ -1,0 +1,90 @@
+name: HowTo upload benchmark
+
+# Manual. Measures the legacy upload against chunked sessions with 1/2/4/8 connections over
+# HTTP/1.1 and HTTP/2 on an EMULATED network (veth + tc netem) inside a GitHub-hosted runner.
+# The numbers describe this emulation on shared hardware: they are NOT predictions for the real
+# internet path between a user and a node, and CPU/disk figures are noisy on shared runners.
+on:
+  workflow_dispatch:
+    inputs:
+      size_mib:
+        description: File size in MiB (16 MiB chunks: use >= 128 so 8 connections have work)
+        default: "192"
+      window_seconds:
+        description: Time box per run in seconds
+        default: "60"
+      runs:
+        description: Runs per configuration
+        default: "2"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: ${{ matrix.profile }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { profile: baseline,                netem: "none",                          extra: "" }
+          - { profile: rtt116,                  netem: "delay 58ms",                    extra: "" }
+          - { profile: rtt116-loss0.1,          netem: "delay 58ms loss 0.1%",          extra: "" }
+          - { profile: rtt116-loss0.5,          netem: "delay 58ms loss 0.5%",          extra: "" }
+          - { profile: rtt116-loss0.1-100mbit,  netem: "delay 58ms loss 0.1%",          extra: "rate 100mbit" }
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: |
+          go build -trimpath -o /tmp/uploadbench ./tools/uploadbench
+          sudo apt-get install -y -qq ethtool iproute2 >/dev/null
+
+      - name: Environment
+        run: |
+          uname -a; lscpu | grep -E "Model name|^CPU\(s\)"; free -m | head -2
+          sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc || true
+
+      - name: Run matrix
+        run: |
+          chmod +x tools/uploadbench/run.sh
+          tools/uploadbench/run.sh "${{ matrix.profile }}" "${{ matrix.netem }}" \
+            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
+            "${{ matrix.extra }}" | tee results.jsonl
+
+      - name: Summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, statistics as st, collections
+          rows = [json.loads(l) for l in open("results.jsonl") if l.strip().startswith("{")]
+          print("### ${{ matrix.profile }}  (netem: `${{ matrix.netem }} ${{ matrix.extra }}`)\n")
+          if rows and "skipped" in rows[0]:
+              print("**Skipped:**", rows[0]["skipped"]); raise SystemExit
+          groups = collections.OrderedDict()
+          for r in rows:
+              groups.setdefault((r.get("mode"), r.get("proto"), r.get("conns")), []).append(r)
+          print("| mode | proto | conns | runs ok | MB/s (median) | min-max | retrans % | server CPU ms/MB | server peak RSS MiB | server disk write MiB |")
+          print("|---|---|---|---|---|---|---|---|---|---|")
+          for (m, p, c), rs in groups.items():
+              good = [r for r in rs if not r.get("error")] or rs
+              v = [r["mb_per_s"] for r in good]
+              g = lambda k: [r[k] for r in good if r.get(k) is not None]
+              print(f"| {m} | {p} | {c} | {sum(1 for r in rs if not r.get('error'))}/{len(rs)} | {st.median(v):.2f} | {min(v):.2f}-{max(v):.2f} | "
+                    f"{st.median(g('retrans_pct')) if g('retrans_pct') else '-'} | {st.median(g('server_cpu_ms_per_mb')) if g('server_cpu_ms_per_mb') else '-'} | "
+                    f"{max(g('server_peak_rss_mib')) if g('server_peak_rss_mib') else '-'} | {st.median(g('server_disk_write_mib')) if g('server_disk_write_mib') else '-'} |")
+          errs = {r.get('error') for r in rows if r.get('error')}
+          if errs: print("\nNotes (runs cut by the time box or failed):", "; ".join(sorted(errs))[:600])
+          PY
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: upload-benchmark-${{ matrix.profile }}
+          path: results.jsonl

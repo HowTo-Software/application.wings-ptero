@@ -432,6 +432,15 @@ func (s *Session) missingLocked() [][2]int {
 	return compress(missing)
 }
 
+// SetReplace updates whether finishing may replace an existing file. The permission
+// comes from the token of the request being served, which is the authority at that
+// moment: a user who lacked it when the upload started may have been granted it since.
+func (s *Session) SetReplace(replace bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.p.Replace = replace
+}
+
 // Abort discards the session: its part file (freeing the quota) and its state.
 func (s *Session) Abort() error {
 	s.mu.Lock()

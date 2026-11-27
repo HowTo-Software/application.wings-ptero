@@ -307,6 +307,8 @@ func postUploadSessionComplete(c *gin.Context) {
 		}
 	}
 
+	// The token of THIS request says whether replacing an existing file is allowed.
+	sess.SetReplace(payload.Replace)
 	alreadyDone := sess.Info().Completed != nil
 	res, err := sess.Complete(body.SHA256)
 	if err != nil {
