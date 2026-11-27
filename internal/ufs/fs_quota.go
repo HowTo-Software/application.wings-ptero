@@ -198,3 +198,22 @@ func freedBy(s FileInfo) int64 {
 	}
 	return s.Size()
 }
+
+// RenameReplace atomically renames oldpath to newpath, replacing an existing
+// regular file, and accounts for the space the replaced file frees. See
+// [UnixFS.RenameReplace].
+//
+// The size of the replaced file is read just before the rename; if the file is
+// changed in between, the cached usage is off by the difference until the next
+// full disk usage calculation corrects it.
+func (fs *Quota) RenameReplace(oldpath, newpath string) error {
+	var freed int64
+	if s, err := fs.UnixFS.Lstat(newpath); err == nil {
+		freed = freedBy(s)
+	}
+	if err := fs.UnixFS.RenameReplace(oldpath, newpath); err != nil {
+		return err
+	}
+	fs.Add(-freed)
+	return nil
+}

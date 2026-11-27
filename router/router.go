@@ -87,6 +87,8 @@ func Configure(m *wserver.Manager, client remote.Client) *gin.Engine {
 	router.GET("/download/backup", getDownloadBackup)
 	router.GET("/download/file", getDownloadFile)
 	router.POST("/upload/file", postServerUploadFiles)
+	// Chunked, resumable uploads (HowTo.Software extension). Additive: the legacy endpoint above is untouched.
+	registerUploadSessionRoutes(router)
 
 	// This route is special it sits above all the other requests because we are
 	// using a JWT to authorize access to it, therefore it needs to be publicly

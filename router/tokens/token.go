@@ -9,6 +9,7 @@ type JwtScope string
 const (
 	Websocket      = JwtScope("websocket")
 	FileUpload     = JwtScope("file-upload")
+	UploadSession  = JwtScope("upload-session")
 	FileDownload   = JwtScope("file-download")
 	BackupDownload = JwtScope("backup-download")
 	ServerTransfer = JwtScope("transfer")
