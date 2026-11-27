@@ -283,13 +283,28 @@ func fill(buf []byte, i int) {
 	}
 }
 
-func (c *client) chunked(ctx context.Context, conns int) (*bool, error) {
+func (c *client) chunked(ctx context.Context, conns int) (ok *bool, err error) {
 	token := func() string { return c.sessionToken() }
 
+	// A run that is cut by the time box (or fails) must not leave its session behind: the node limits
+	// unfinished sessions per server, and stale ones would make the following runs fail with HTTP 429.
+	defer func() {
+		if err == nil {
+			return
+		}
+		dctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		rq, _ := http.NewRequestWithContext(dctx, http.MethodDelete, c.base+"/upload/session/"+c.sessID+"?token="+token(), nil)
+		if rs, derr := c.http.Do(rq); derr == nil {
+			_, _ = io.Copy(io.Discard, rs.Body)
+			_ = rs.Body.Close()
+		}
+	}()
+
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/upload/session?token="+token(), nil)
-	res, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
+	res, derr := c.http.Do(req)
+	if derr != nil {
+		return nil, derr
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	_ = res.Body.Close()
@@ -371,8 +386,8 @@ feed:
 	if cres.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("complete: HTTP %d %s", cres.StatusCode, out.Error)
 	}
-	ok := out.SHA256 == want
-	return &ok, nil
+	matches := out.SHA256 == want
+	return &matches, nil
 }
 
 func (c *client) legacy(ctx context.Context) error {
