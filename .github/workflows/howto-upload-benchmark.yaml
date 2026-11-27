@@ -5,6 +5,11 @@ name: HowTo upload benchmark
 # The numbers describe this emulation on shared hardware: they are NOT predictions for the real
 # internet path between a user and a node, and CPU/disk figures are noisy on shared runners.
 on:
+  # Pushing a branch named bench/<anything> starts a run (workflow_dispatch is only offered for
+  # workflows on the default branch of the repository).
+  push:
+    branches:
+      - "bench/**"
   workflow_dispatch:
     inputs:
       size_mib:
