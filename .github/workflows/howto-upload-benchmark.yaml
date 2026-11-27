@@ -20,7 +20,7 @@ on:
         default: "60"
       runs:
         description: Runs per configuration
-        default: "2"
+        default: "3"
 
 permissions:
   contents: read
@@ -60,19 +60,19 @@ jobs:
         run: |
           chmod +x tools/uploadbench/run.sh
           tools/uploadbench/run.sh "${{ matrix.profile }}" "${{ matrix.netem }}" \
-            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
+            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '3' }}" \
             "${{ matrix.extra }}" | tee results.jsonl
 
       - name: Run HTTP/2 with a 16 MiB receive window (api.upload_sessions.http2_receive_window_mib)
         run: |
           H2_WINDOW_MIB=16 ONLY=h2 tools/uploadbench/run.sh "${{ matrix.profile }}+h2win16" "${{ matrix.netem }}" \
-            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
+            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '3' }}" \
             "${{ matrix.extra }}" | tee results-h2win16.jsonl
 
       - name: Run one connection with tcp_slow_start_after_idle=0 (sender side)
         run: |
           SSAI=0 ONLY=h1one tools/uploadbench/run.sh "${{ matrix.profile }}+ssai0" "${{ matrix.netem }}" \
-            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
+            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '3' }}" \
             "${{ matrix.extra }}" | tee results-ssai0.jsonl
 
       - name: Summary

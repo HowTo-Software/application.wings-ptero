@@ -82,6 +82,10 @@ VOL=$(find "$WORK/wings/volumes" -mindepth 1 -maxdepth 1 -type d | head -1)
 run_one() { # mode proto conns
   local mode=$1 proto=$2 conns=$3
   for run in $(seq 1 "$RUNS"); do
+    # Linux caches ssthresh/cwnd/RTT per destination and reuses them for the next connection to the same host, so a
+    # run would start with what the previous run's loss events taught the kernel. Start every run from a clean slate.
+    sudo ip tcp_metrics flush 2>/dev/null || true
+    sudo ip netns exec $NS ip tcp_metrics flush 2>/dev/null || true
     local t0 w0 r0 o0
     t0=$(cpu_ticks); w0=$(write_bytes); read -r o0 r0 < <(retrans)
     local tf="$WORK/time.$mode.$proto.$conns.$run"
