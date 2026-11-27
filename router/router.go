@@ -32,7 +32,7 @@ var (
 // NewServer returns an HTTP server for the handler with the timeouts used by
 // Wings.
 func NewServer(addr string, handler http.Handler, tlsConfig *tls.Config) *http.Server {
-	return &http.Server{
+	srv := &http.Server{
 		Addr:              addr,
 		Handler:           limitUnauthenticated(handler, unauthenticatedTimeout),
 		TLSConfig:         tlsConfig,
@@ -41,6 +41,14 @@ func NewServer(addr string, handler http.Handler, tlsConfig *tls.Config) *http.S
 		// Pass "OPTIONS *" requests to the handler like any other request.
 		DisableGeneralOptionsHandler: true,
 	}
+	if mib := config.Get().Api.UploadSessions.HTTP2ReceiveWindowMiB; mib > 0 {
+		// Left unset (0) the defaults of net/http apply, exactly like upstream Wings.
+		srv.HTTP2 = &http.HTTP2Config{
+			MaxReceiveBufferPerConnection: mib << 20,
+			MaxReceiveBufferPerStream:     mib << 20,
+		}
+	}
+	return srv
 }
 
 // limitUnauthenticated sets a deadline for reading the request and writing the

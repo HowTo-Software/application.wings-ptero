@@ -139,6 +139,12 @@ type UploadSessionsConfiguration struct {
 	// share a single congestion window; with HTTP/1.1 each parallel request gets its own
 	// connection. Whether that helps depends on the network path: measure before enabling.
 	DisableHTTP2 bool `yaml:"disable_http2"`
+
+	// HTTP2ReceiveWindowMiB raises the HTTP/2 flow-control window (per connection and per stream) used when
+	// receiving request bodies. Go's default is 1 MiB, which caps ONE upload stream at about 1 MiB / RTT
+	// (roughly 9 MB/s on a 115 ms path) however fast the link is. 0 keeps Go's default, i.e. the behaviour of
+	// upstream Wings. The memory cost is bounded by this value per open HTTP/2 connection that is uploading.
+	HTTP2ReceiveWindowMiB int `yaml:"http2_receive_window_mib"`
 }
 
 // RemoteQueryConfiguration defines the configuration settings for remote requests

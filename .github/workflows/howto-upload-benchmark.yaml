@@ -63,25 +63,37 @@ jobs:
             "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
             "${{ matrix.extra }}" | tee results.jsonl
 
+      - name: Run HTTP/2 with a 16 MiB receive window (api.upload_sessions.http2_receive_window_mib)
+        run: |
+          H2_WINDOW_MIB=16 ONLY=h2 tools/uploadbench/run.sh "${{ matrix.profile }}+h2win16" "${{ matrix.netem }}" \
+            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
+            "${{ matrix.extra }}" | tee results-h2win16.jsonl
+
+      - name: Run one connection with tcp_slow_start_after_idle=0 (sender side)
+        run: |
+          SSAI=0 ONLY=h1one tools/uploadbench/run.sh "${{ matrix.profile }}+ssai0" "${{ matrix.netem }}" \
+            "${{ inputs.size_mib || '192' }}" "${{ inputs.window_seconds || '60' }}" "${{ inputs.runs || '2' }}" \
+            "${{ matrix.extra }}" | tee results-ssai0.jsonl
+
       - name: Summary
         if: always()
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, statistics as st, collections
-          rows = [json.loads(l) for l in open("results.jsonl") if l.strip().startswith("{")]
+          rows = [json.loads(l) for f in ("results.jsonl", "results-h2win16.jsonl", "results-ssai0.jsonl") for l in open(f) if l.strip().startswith("{")]
           print("### ${{ matrix.profile }}  (netem: `${{ matrix.netem }} ${{ matrix.extra }}`)\n")
           if rows and "skipped" in rows[0]:
               print("**Skipped:**", rows[0]["skipped"]); raise SystemExit
           groups = collections.OrderedDict()
           for r in rows:
-              groups.setdefault((r.get("mode"), r.get("proto"), r.get("conns")), []).append(r)
-          print("| mode | proto | conns | runs ok | MB/s (median) | min-max | retrans % | server CPU ms/MB | server peak RSS MiB | server disk write MiB |")
-          print("|---|---|---|---|---|---|---|---|---|---|")
-          for (m, p, c), rs in groups.items():
+              groups.setdefault((r.get("profile"), r.get("mode"), r.get("proto"), r.get("conns")), []).append(r)
+          print("| variant | mode | proto | conns | runs ok | MB/s (median) | min-max | retrans % | server CPU ms/MB | server peak RSS MiB | server disk write MiB |")
+          print("|---|---|---|---|---|---|---|---|---|---|---|")
+          for (prof, m, p, c), rs in groups.items():
               good = [r for r in rs if not r.get("error")] or rs
               v = [r["mb_per_s"] for r in good]
               g = lambda k: [r[k] for r in good if r.get(k) is not None]
-              print(f"| {m} | {p} | {c} | {sum(1 for r in rs if not r.get('error'))}/{len(rs)} | {st.median(v):.2f} | {min(v):.2f}-{max(v):.2f} | "
+              print(f"| {prof} | {m} | {p} | {c} | {sum(1 for r in rs if not r.get('error'))}/{len(rs)} | {st.median(v):.2f} | {min(v):.2f}-{max(v):.2f} | "
                     f"{st.median(g('retrans_pct')) if g('retrans_pct') else '-'} | {st.median(g('server_cpu_ms_per_mb')) if g('server_cpu_ms_per_mb') else '-'} | "
                     f"{max(g('server_peak_rss_mib')) if g('server_peak_rss_mib') else '-'} | {st.median(g('server_disk_write_mib')) if g('server_disk_write_mib') else '-'} |")
           errs = {r.get('error') for r in rows if r.get('error')}
@@ -92,4 +104,4 @@ jobs:
         if: always()
         with:
           name: upload-benchmark-${{ matrix.profile }}
-          path: results.jsonl
+          path: results*.jsonl

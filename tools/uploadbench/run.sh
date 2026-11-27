@@ -46,6 +46,13 @@ sudo ip netns exec $NS ip link set lo up
 sudo ethtool -K vs tso off gso off gro off >/dev/null 2>&1 || true
 sudo ip netns exec $NS ethtool -K vc tso off gso off gro off >/dev/null 2>&1 || true
 
+# netem releases packets that were delayed together in one burst; the default per-CPU backlog (1000 packets) of
+# the receiving veth then drops them, which would show up as retransmissions that the profile never asked for.
+sudo sysctl -qw net.core.netdev_max_backlog=500000 2>/dev/null || true
+# Optional: do not collapse the congestion window after an idle period (affects ONE connection sending
+# consecutive requests, like a browser sending chunk after chunk).
+if [ -n "${SSAI:-}" ]; then sudo ip netns exec $NS sysctl -qw net.ipv4.tcp_slow_start_after_idle="$SSAI" 2>/dev/null || true; fi
+
 NETEM_OK=true
 if [ "$NETEM" != "none" ]; then
   sudo modprobe sch_netem 2>/dev/null || true
@@ -58,7 +65,7 @@ if [ "$NETEM_OK" != true ]; then
   exit 0
 fi
 
-"$BIN" serve --dir "$WORK/wings" --listen "$ADDR" --token "$SECRET" >"$WORK/server.log" 2>&1 &
+"$BIN" serve --dir "$WORK/wings" --listen "$ADDR" --token "$SECRET" --h2-window-mib "${H2_WINDOW_MIB:-0}" >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 100); do grep -q READY "$WORK/server.log" 2>/dev/null && break; sleep 0.2; done
 grep -q READY "$WORK/server.log" || { echo "server did not start"; cat "$WORK/server.log"; exit 1; }
@@ -84,7 +91,7 @@ run_one() { # mode proto conns
     local t1 w1 r1 o1
     t1=$(cpu_ticks); w1=$(write_bytes); read -r o1 r1 < <(retrans)
     read -r cu cs crss < "$tf" || { cu=0; cs=0; crss=0; }
-    python3 - "$PROFILE" "$out" "$t0" "$t1" "$CLK" "$w0" "$w1" "$o0" "$o1" "$r0" "$r1" "$(vm_hwm_kb)" "$cu" "$cs" "$crss" "$KERNEL" "$CPU" "$NPROC" "$NETEM $CLIENT_EXTRA" <<'PY'
+    python3 - "$PROFILE" "$out" "$t0" "$t1" "$CLK" "$w0" "$w1" "$o0" "$o1" "$r0" "$r1" "$(vm_hwm_kb)" "$cu" "$cs" "$crss" "$KERNEL" "$CPU" "$NPROC" "$NETEM $CLIENT_EXTRA" "${H2_WINDOW_MIB:-0}" "${SSAI:-default}" <<'PY'
 import json, sys
 a = sys.argv
 try:
@@ -104,7 +111,7 @@ r.update({
     "client_peak_rss_mib": round(int(a[15]) / 1024, 1),
     "tcp_out_segs": out_segs, "tcp_retrans_segs": retr,
     "retrans_pct": round(100 * retr / out_segs, 3) if out_segs else None,
-    "env": {"kernel": a[16], "cpu": a[17], "nproc": int(a[18]), "netem": a[19].strip()},
+    "env": {"kernel": a[16], "cpu": a[17], "nproc": int(a[18]), "netem": a[19].strip(), "h2_window_mib": a[20], "slow_start_after_idle": a[21]},
 })
 print(json.dumps(r))
 PY
@@ -114,7 +121,15 @@ PY
   done
 }
 
-run_one legacy h1 1
-run_one legacy h2 1
-for n in 1 2 4 8; do run_one chunked h1 "$n"; done
-run_one chunked h2 8
+if [ "${ONLY:-all}" = "h1one" ]; then
+  run_one chunked h1 1
+elif [ "${ONLY:-all}" = "h2" ]; then
+  run_one legacy h2 1
+  run_one chunked h2 1
+  run_one chunked h2 8
+else
+  run_one legacy h1 1
+  run_one legacy h2 1
+  for n in 1 2 4 8; do run_one chunked h1 "$n"; done
+  run_one chunked h2 8
+fi

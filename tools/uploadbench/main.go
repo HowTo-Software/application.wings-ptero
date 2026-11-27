@@ -85,6 +85,7 @@ func serve(args []string) {
 	limitMiB := fs.Int64("upload-limit-mib", 100000, "api.upload_limit in MiB")
 	chunk := fs.Int64("chunk-size", 16<<20, "upload session chunk size in bytes")
 	parallel := fs.Int("max-parallel", 8, "max parallel chunks per session")
+	h2Window := fs.Int("h2-window-mib", 0, "api.upload_sessions.http2_receive_window_mib (0 = Go default)")
 	_ = fs.Parse(args)
 	if *dir == "" || *token == "" {
 		fs.Usage()
@@ -103,6 +104,7 @@ func serve(args []string) {
 	cfg.Api.UploadSessions.Enabled = true
 	cfg.Api.UploadSessions.ChunkSize = *chunk
 	cfg.Api.UploadSessions.MaxParallelChunks = *parallel
+	cfg.Api.UploadSessions.HTTP2ReceiveWindowMiB = *h2Window
 	config.Set(cfg)
 	must(os.MkdirAll(cfg.System.Data, 0o755))
 	must(database.Initialize())
