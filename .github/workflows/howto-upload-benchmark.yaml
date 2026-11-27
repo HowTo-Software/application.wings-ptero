@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       size_mib:
-        description: File size in MiB (16 MiB chunks: use >= 128 so 8 connections have work)
+        description: "File size in MiB (16 MiB chunks, so use 128 or more to give 8 connections work)"
         default: "192"
       window_seconds:
         description: Time box per run in seconds
