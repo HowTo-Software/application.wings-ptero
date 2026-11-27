@@ -110,6 +110,41 @@ type ApiConfiguration struct {
 
 	// A list of IP address of proxies that may send a X-Forwarded-For header to set the true clients IP
 	TrustedProxies []string `json:"trusted_proxies" yaml:"trusted_proxies"`
+
+	// UploadSessions configures chunked, resumable uploads (HowTo.Software extension).
+	// The legacy POST /upload/file endpoint is unaffected by every setting here.
+	UploadSessions UploadSessionsConfiguration `json:"-" yaml:"upload_sessions"`
+}
+
+// UploadSessionsConfiguration defines the settings of chunked, resumable uploads.
+type UploadSessionsConfiguration struct {
+	// Enabled turns the feature (and its advertisement to the Panel) on or off.
+	Enabled bool `default:"true" yaml:"enabled"`
+
+	// ChunkSize is the size in bytes of every chunk but the last of a file. Changing it
+	// does not affect sessions that already started.
+	ChunkSize int64 `default:"16777216" yaml:"chunk_size"`
+
+	// MaxParallelChunks is how many chunks of one session may be received at once.
+	MaxParallelChunks int `default:"8" yaml:"max_parallel_chunks"`
+
+	// MaxSessionsPerServer limits unfinished sessions per server.
+	MaxSessionsPerServer int `default:"4" yaml:"max_sessions_per_server"`
+
+	// SessionTTLHours is how long a session may stay idle before its partial data is deleted.
+	SessionTTLHours int `default:"24" yaml:"session_ttl_hours"`
+
+	// DisableHTTP2 makes the HTTPS listener negotiate HTTP/1.1 only. Browsers multiplex every
+	// request to a host over ONE TCP connection with HTTP/2, so parallel chunks would still
+	// share a single congestion window; with HTTP/1.1 each parallel request gets its own
+	// connection. Whether that helps depends on the network path: measure before enabling.
+	DisableHTTP2 bool `yaml:"disable_http2"`
+
+	// HTTP2ReceiveWindowMiB raises the HTTP/2 flow-control window (per connection and per stream) used when
+	// receiving request bodies. Go's default is 1 MiB, which caps ONE upload stream at about 1 MiB / RTT
+	// (roughly 9 MB/s on a 115 ms path) however fast the link is. 0 keeps Go's default, i.e. the behaviour of
+	// upstream Wings. The memory cost is bounded by this value per open HTTP/2 connection that is uploading.
+	HTTP2ReceiveWindowMiB int `yaml:"http2_receive_window_mib"`
 }
 
 // RemoteQueryConfiguration defines the configuration settings for remote requests

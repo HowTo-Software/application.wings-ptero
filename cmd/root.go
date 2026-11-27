@@ -338,6 +338,17 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 	// Create a new HTTP server instance to handle inbound requests from the Panel
 	// and external clients.
 	s := router.NewServer(api.Host+":"+strconv.Itoa(api.Port), router.Configure(manager, pclient), config.DefaultTLSConfig)
+	if api.UploadSessions.DisableHTTP2 && s.TLSConfig != nil {
+		// Never mutate the shared default config; an empty (non-nil) TLSNextProto map is what
+		// stops net/http from enabling HTTP/2 on its own.
+		s.TLSConfig = s.TLSConfig.Clone()
+		s.TLSConfig.NextProtos = []string{"http/1.1"}
+		s.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
+		log.Info("HTTP/2 disabled for the HTTPS listener (api.upload_sessions.disable_http2)")
+	}
+	sweepCtx, stopSweeping := context.WithCancel(context.Background())
+	defer stopSweeping()
+	router.RunUploadSessionSweeper(sweepCtx, manager)
 	listener, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		log.WithField("error", err).Fatal("failed to configure HTTP server")

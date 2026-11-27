@@ -25,6 +25,15 @@ func getSystemInformation(c *gin.Context) {
 	}
 
 	if c.Query("v") == "2" {
+		// Advertise optional capabilities so the Panel can tell this build from upstream Wings.
+		// Upstream Wings omits the key, which is how the Panel falls back to the legacy upload.
+		if caps := uploadCapabilities(); caps != nil {
+			c.JSON(http.StatusOK, struct {
+				system.Information
+				Capabilities map[string]any `json:"capabilities"`
+			}{Information: *i, Capabilities: caps})
+			return
+		}
 		c.JSON(http.StatusOK, i)
 		return
 	}
