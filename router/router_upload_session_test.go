@@ -31,6 +31,8 @@ func newSessionTest(t *testing.T, uploadLimit, diskLimit int64) *uploadTest {
 	u := newUploadTest(t, uploadLimit, diskLimit)
 
 	cfg := config.Get()
+	// Session state is kept under the Wings root directory, which defaults to /var/lib/pterodactyl.
+	cfg.System.RootDirectory = t.TempDir()
 	cfg.Api.UploadSessions.Enabled = true
 	cfg.Api.UploadSessions.ChunkSize = sessionChunk
 	cfg.Api.UploadSessions.MaxParallelChunks = 8
